@@ -1,0 +1,11 @@
+{
+  "workspace_id": "11111111-1111-1111-1111-111111111111",
+  "lead": {
+    "nom": "Entreprise Inconnue"
+  },
+  "icp": {
+    "secteurs_inclus": ["conseil"],
+    "taille_min": 5,
+    "taille_max": 30
+  }
+}

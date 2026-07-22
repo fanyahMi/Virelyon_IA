@@ -1,0 +1,22 @@
+{
+  "workspace_id": "11111111-1111-1111-1111-111111111111",
+  "lead": {
+    "nom": "Agence Nova",
+    "secteur": "communication",
+    "taille_effectif": 22,
+    "role_contact": "decideur",
+    "contact": { "email": "hello@agencenova.co" },
+    "donnees_brutes": {
+      "signaux_bruts": [
+        { "type": "recrutement", "detail": "5 offres commerciales", "source": "linkedin", "date": "2026-07-12" }
+      ]
+    }
+  },
+  "icp": {
+    "secteurs_inclus": ["marketing", "communication", "conseil"],
+    "secteurs_exclus": ["hotellerie"],
+    "taille_min": 5,
+    "taille_max": 30,
+    "roles_cibles": ["fondateur", "decideur"]
+  }
+}

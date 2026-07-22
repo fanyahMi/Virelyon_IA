@@ -1,0 +1,12 @@
+{
+  "workspace_id": "11111111-1111-1111-1111-111111111111",
+  "lead": {
+    "nom": "Agence Nova",
+    "secteur": "communication",
+    "role_contact": "decideur"
+  },
+  "etape": "J0",
+  "ton_de_voix": "professionnel et chaleureux",
+  "historique": [],
+  "language": "fr"
+}

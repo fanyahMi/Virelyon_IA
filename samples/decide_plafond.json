@@ -1,0 +1,6 @@
+{
+  "workspace_id": "11111111-1111-1111-1111-111111111111",
+  "lead": { "nom": "Studio Créa", "secteur": "marketing" },
+  "palier": { "nom": "correcte", "relances_max": 3, "cadence": [0, 4, 10, 18] },
+  "relances_effectuees": 3
+}

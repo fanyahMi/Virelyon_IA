@@ -1,0 +1,11 @@
+# Dev : le port est publié pour tester en local.
+# ⚠️ En production, NE PAS publier le port : le service IA doit rester
+# accessible uniquement par le backend (réseau interne / Security Group).
+services:
+  ai:
+    build: .
+    container_name: virelyon-ai
+    env_file: .env
+    ports:
+      - "8080:8080"
+    restart: unless-stopped

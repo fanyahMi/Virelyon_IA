@@ -1,0 +1,17 @@
+{
+  "workspace_id": "11111111-1111-1111-1111-111111111111",
+  "lead": {
+    "nom": "Hôtel du Port",
+    "secteur": "hotellerie",
+    "taille_effectif": 12,
+    "role_contact": "fondateur",
+    "contact": { "email": "contact@hotelduport.co" }
+  },
+  "icp": {
+    "secteurs_inclus": ["marketing", "conseil"],
+    "secteurs_exclus": ["hotellerie", "restauration"],
+    "taille_min": 5,
+    "taille_max": 30,
+    "roles_cibles": ["fondateur"]
+  }
+}
