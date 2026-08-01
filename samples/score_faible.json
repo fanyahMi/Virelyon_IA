@@ -1,0 +1,17 @@
+{
+  "workspace_id": "11111111-1111-1111-1111-111111111111",
+  "lead": {
+    "nom": "Prospect Dormant",
+    "secteur": "marketing",
+    "contact": { "email": "info@prospect-dormant.co" },
+    "ingested_at": "2026-03-15T09:00:00Z",
+    "langue": "fr"
+  },
+  "icp": {
+    "secteurs_inclus": ["marketing", "conseil"],
+    "secteurs_exclus": ["hotellerie"],
+    "taille_min": 5,
+    "taille_max": 30,
+    "roles_cibles": ["fondateur", "decideur"]
+  }
+}

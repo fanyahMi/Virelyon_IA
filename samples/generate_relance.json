@@ -1,0 +1,15 @@
+{
+  "workspace_id": "11111111-1111-1111-1111-111111111111",
+  "lead": {
+    "nom": "Agence Nova",
+    "secteur": "communication",
+    "role_contact": "decideur",
+    "contact": { "email": "hello@agencenova.co" }
+  },
+  "etape": "J+7",
+  "ton_de_voix": "professionnel et chaleureux",
+  "historique": [
+    { "role": "ares", "canal": "email", "date": "2026-07-15", "texte": "Bonjour, je me permets de vous contacter suite à vos récents recrutements commerciaux..." }
+  ],
+  "language": "fr"
+}

@@ -1,0 +1,17 @@
+{
+  "workspace_id": "11111111-1111-1111-1111-111111111111",
+  "lead": {
+    "nom": "Grande Distribution SA",
+    "secteur": "retail",
+    "taille_effectif": 450,
+    "role_contact": "stagiaire",
+    "contact": { "email": "stage@grande-distrib.co" }
+  },
+  "icp": {
+    "secteurs_inclus": ["marketing", "conseil", "communication"],
+    "secteurs_exclus": ["retail", "hotellerie"],
+    "taille_min": 5,
+    "taille_max": 30,
+    "roles_cibles": ["fondateur", "decideur"]
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "workspace_id": "11111111-1111-1111-1111-111111111111",
+  "lead": {
+    "nom": "Cabinet Lumen",
+    "secteur": "conseil",
+    "taille_effectif": 12,
+    "role_contact": "decideur",
+    "contact": { "email": "direction@cabinet-lumen.co" },
+    "montant_potentiel": 15000,
+    "ingested_at": "2026-07-21T08:00:00Z",
+    "donnees_brutes": {
+      "signaux_bruts": [
+        { "type": "recrutement", "detail": "1 poste business developer", "source": "linkedin", "date": "2026-07-18" }
+      ]
+    },
+    "langue": "fr"
+  },
+  "icp": {
+    "secteurs_inclus": ["marketing", "conseil", "communication"],
+    "secteurs_exclus": ["hotellerie", "restauration"],
+    "taille_min": 5,
+    "taille_max": 30,
+    "roles_cibles": ["fondateur", "decideur"]
+  }
+}

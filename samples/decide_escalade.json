@@ -1,0 +1,12 @@
+{
+  "workspace_id": "11111111-1111-1111-1111-111111111111",
+  "lead": {
+    "nom": "Cabinet Lumen",
+    "secteur": "conseil",
+    "role_contact": "decideur",
+    "montant_potentiel": 15000
+  },
+  "palier": { "nom": "quasi_parfait", "relances_max": 5, "cadence": [0, 3, 7, 12, 18, 25] },
+  "relances_effectuees": 1,
+  "contexte": "Le prospect a répondu positivement et demande un devis détaillé ainsi qu'un rendez-vous cette semaine."
+}

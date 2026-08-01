@@ -30,8 +30,20 @@ echo; echo "======================================================"
 echo " ✅ MARCHE SANS CLÉ CLAUDE (logique pure / déterministe)"
 echo "======================================================"
 
-echo; echo "### /score — lead DANS l'ICP (score élevé attendu) ###"
+echo; echo "### /score — lead DANS l'ICP, complet, 2 signaux (~96 → quasi_parfait) ###"
 call POST "$AI_URL/api/v1/ares/score" "$DIR/score_bon.json"
+
+echo "### /score — lead fort, 1 signal (~93 → tres_forte) ###"
+call POST "$AI_URL/api/v1/ares/score" "$DIR/score_tres_forte.json"
+
+echo "### /score — fit partiel (role hors cibles) (~72 → correcte) ###"
+call POST "$AI_URL/api/v1/ares/score" "$DIR/score_correcte.json"
+
+echo "### /score — lead ancien & incomplet mais dans l'ICP (~28 → faible) ###"
+call POST "$AI_URL/api/v1/ares/score" "$DIR/score_faible.json"
+
+echo "### /score — pondérations personnalisées (engagement fort) ###"
+call POST "$AI_URL/api/v1/ares/score" "$DIR/score_poids_custom.json"
 
 echo "### /score — lead HORS-ICP (secteur exclu → fit 0, score bas) ###"
 call POST "$AI_URL/api/v1/ares/score" "$DIR/score_hors_icp.json"
@@ -49,14 +61,35 @@ echo; echo "======================================================"
 echo " ⚠️  NÉCESSITE ANTHROPIC_API_KEY (sinon 503 propre)"
 echo "======================================================"
 
-echo; echo "### /qualify (Claude Sonnet) ###"
+echo; echo "### /qualify — lead dans l'ICP (Claude Sonnet) ###"
 call POST "$AI_URL/api/v1/ares/qualify" "$DIR/qualify.json"
 
-echo "### /classify (Claude Haiku) ###"
+echo "### /qualify — lead hors-ICP (secteur exclu, 450 salariés, stagiaire) ###"
+call POST "$AI_URL/api/v1/ares/qualify" "$DIR/qualify_hors_icp.json"
+
+echo "### /classify — Intéressé (Claude Haiku) ###"
 call POST "$AI_URL/api/v1/ares/classify" "$DIR/classify.json"
 
-echo "### /generate (Claude Sonnet) ###"
+echo "### /classify — À recontacter plus tard ###"
+call POST "$AI_URL/api/v1/ares/classify" "$DIR/classify_plus_tard.json"
+
+echo "### /classify — Pas intéressé ###"
+call POST "$AI_URL/api/v1/ares/classify" "$DIR/classify_pas_interesse.json"
+
+echo "### /classify — Demande de retrait ###"
+call POST "$AI_URL/api/v1/ares/classify" "$DIR/classify_retrait.json"
+
+echo "### /classify — Question hors-scope ###"
+call POST "$AI_URL/api/v1/ares/classify" "$DIR/classify_hors_scope.json"
+
+echo "### /generate — 1er contact J0 (Claude Sonnet) ###"
 call POST "$AI_URL/api/v1/ares/generate" "$DIR/generate.json"
+
+echo "### /generate — relance J+7 avec historique ###"
+call POST "$AI_URL/api/v1/ares/generate" "$DIR/generate_relance.json"
 
 echo "### /decide — plafond NON atteint (1/3 → décision via Claude) ###"
 call POST "$AI_URL/api/v1/ares/decide" "$DIR/decide_continuer.json"
+
+echo "### /decide — réponse positive → escalade (via Claude) ###"
+call POST "$AI_URL/api/v1/ares/decide" "$DIR/decide_escalade.json"
