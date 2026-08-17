@@ -1,0 +1,9 @@
+{
+  "icp": {
+    "secteurs_inclus": ["Marketing digital", "plomberie"],
+    "secteurs_exclus": [],
+    "taille_min": 10,
+    "taille_max": 12,
+    "roles_cibles": ["CEO"]
+  }
+}

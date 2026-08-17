@@ -30,7 +30,29 @@ echo; echo "======================================================"
 echo " ✅ MARCHE SANS CLÉ CLAUDE (logique pure / déterministe)"
 echo "======================================================"
 
-echo; echo "### /score — lead DANS l'ICP, complet, 2 signaux (~96 → quasi_parfait) ###"
+echo; echo "--- Agent Builder (paramétrage du client) ---"
+
+echo "### /builder/referentiels — vocabulaire des listes déroulantes ###"
+call GET "$AI_URL/api/v1/builder/referentiels"
+
+echo "### /builder/icp/valider — ICP conforme (aucun diagnostic) ###"
+call POST "$AI_URL/api/v1/builder/icp/valider" "$DIR/icp_valider_ok.json"
+
+echo "### /builder/icp/valider — contradictions (min>max, secteur inclus ET exclu) ###"
+call POST "$AI_URL/api/v1/builder/icp/valider" "$DIR/icp_valider_contradiction.json"
+
+echo "### /builder/icp/valider — valeurs hors référentiel + fourchette trop étroite ###"
+call POST "$AI_URL/api/v1/builder/icp/valider" "$DIR/icp_valider_hors_referentiel.json"
+
+echo "### /builder/icp/valider — ICP vide (ne filtre rien) ###"
+call POST "$AI_URL/api/v1/builder/icp/valider" "$DIR/icp_valider_vide.json"
+
+echo "### /builder/plan-recherche — ICP → requêtes par source ###"
+call POST "$AI_URL/api/v1/builder/plan-recherche" "$DIR/plan_recherche.json"
+
+echo; echo "--- Scoring ARES ---"
+
+echo "### /score — lead DANS l'ICP, complet, 2 signaux (~96 → quasi_parfait) ###"
 call POST "$AI_URL/api/v1/ares/score" "$DIR/score_bon.json"
 
 echo "### /score — lead fort, 1 signal (~93 → tres_forte) ###"
@@ -61,7 +83,13 @@ echo; echo "======================================================"
 echo " ⚠️  NÉCESSITE ANTHROPIC_API_KEY (sinon 503 propre)"
 echo "======================================================"
 
-echo; echo "### /qualify — lead dans l'ICP (Claude Sonnet) ###"
+echo; echo "### /builder/icp/extraire — description en langage normal → ICP structuré ###"
+call POST "$AI_URL/api/v1/builder/icp/extraire" "$DIR/icp_extraire.json"
+
+echo "### /builder/icp/extraire — description vague (confiance basse attendue) ###"
+call POST "$AI_URL/api/v1/builder/icp/extraire" "$DIR/icp_extraire_vague.json"
+
+echo "### /qualify — lead dans l'ICP (Claude Sonnet) ###"
 call POST "$AI_URL/api/v1/ares/qualify" "$DIR/qualify.json"
 
 echo "### /qualify — lead hors-ICP (secteur exclu, 450 salariés, stagiaire) ###"

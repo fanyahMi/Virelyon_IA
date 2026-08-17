@@ -127,6 +127,97 @@
 { "action": "continuer", "justification": "score correct, marge de relance", "meta": { … } }
 ```
 
+---
+
+## 5. Agent Builder — paramétrage du client
+
+Ces endpoints alimentent l'écran **Agent Builder**. Ils ne persistent rien : le backend
+enregistre le résultat dans `workspace_icp_config`.
+
+### `GET /api/v1/builder/referentiels` — Vocabulaire du filtrage (aucun LLM)
+
+**La source unique des listes déroulantes du front.** Le filtrage ICP compare des valeurs
+avec une **égalité stricte** : `"Marketing digital"` ne matche PAS `"marketing"`. Laisser
+saisir du texte libre garantit un fit à 0 sur des leads valides.
+
+```json
+{ "secteurs": ["marketing", "communication", "conseil", …],
+  "secteurs_services_b2b": ["marketing", …],
+  "secteurs_hors_icp": ["hotellerie", "restauration", …],
+  "roles": ["fondateur", "decideur", "directeur", "manager", "operationnel"],
+  "tons_de_voix": ["professionnel", "chaleureux", "direct", "creatif"],
+  "canaux": ["email", "whatsapp", "linkedin", "sms", "slack"] }
+```
+
+À appeler une fois au chargement de l'écran.
+
+### `POST /api/v1/builder/icp/valider` — Vérification d'un ICP (aucun LLM)
+
+Gratuit et instantané — appelable à chaque modification du formulaire.
+
+**Entrée**
+```json
+{ "icp": { "secteurs_inclus": ["marketing"], "secteurs_exclus": ["marketing"],
+           "taille_min": 30, "taille_max": 5, "roles_cibles": ["fondateur"] } }
+```
+**Sortie** — `valide: false` s'il existe au moins un diagnostic de niveau `erreur`
+```json
+{ "valide": false,
+  "diagnostics": [
+    { "niveau": "erreur", "champ": "taille_effectif",
+      "message": "La taille minimale (30) dépasse la taille maximale (5) : aucun lead ne peut correspondre.",
+      "suggestion": "Inverser les deux valeurs." }
+  ],
+  "criteres_actifs": 3 }
+```
+
+| Contrôle | Niveau |
+|---|---|
+| `taille_min` > `taille_max` | **erreur** |
+| Secteur à la fois inclus et exclu | **erreur** |
+| Valeur hors référentiel (« plomberie ») | avertissement |
+| Valeur non normalisée (« Marketing digital » → « marketing ») | avertissement |
+| Aucun critère renseigné (le filtrage ne discrimine rien) | avertissement |
+| Fourchette d'effectif très étroite | avertissement |
+| ICP très sélectif (1 secteur + 1 rôle + fourchette) | avertissement |
+| Secteur hors services B2B en inclusion | avertissement |
+
+> `criteres_actifs` (0 à 3) compte les critères réellement discriminants : secteur, taille, rôle.
+> **0 signifie que tous les leads obtiendront le même fit neutre.**
+
+### `POST /api/v1/builder/icp/extraire` — Texte libre → ICP structuré (Claude Sonnet)
+
+Le client décrit sa cible en langage normal ; on en tire un ICP exploitable.
+
+**Entrée**
+```json
+{ "workspace_id": "UUID",
+  "texte": "Agences de communication et de marketing digital, 5 à 30 salariés, je vise les fondateurs. Pas d'hôtellerie.",
+  "language": "fr" }
+```
+**Sortie**
+```json
+{ "icp": { "secteurs_inclus": ["communication", "marketing"], "secteurs_exclus": ["hotellerie"],
+           "taille_min": 5, "taille_max": 30, "roles_cibles": ["fondateur"] },
+  "confiance": 0.9,
+  "non_reconnu": [],
+  "diagnostics": [],
+  "meta": { … } }
+```
+
+Garanties :
+- Le résultat est **renormalisé sur le référentiel** après l'appel — une valeur inventée par
+  le modèle n'entre jamais dans l'ICP, elle ressort dans `non_reconnu`.
+- **Aucune fourchette d'effectif inventée** : si le client n'en parle pas, `taille_min` et
+  `taille_max` restent `null` (jamais de « 5-30 » par défaut).
+- Aucune zone géographique déduite.
+- Texte vague → `confiance` basse. À afficher au client plutôt que d'appliquer en silence.
+
+> Le résultat est une **proposition** : il doit rester modifiable dans le formulaire avant
+> enregistrement, jamais appliqué automatiquement.
+
+---
+
 ### `GET /api/v1/costs/{workspace_id}` — Coûts cumulés (pour FINANCE)
 ```json
 { "workspace_id": "UUID", "input_tokens": 1520, "output_tokens": 340, "cost": 0.0057 }

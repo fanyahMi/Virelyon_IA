@@ -1,0 +1,9 @@
+{
+  "icp": {
+    "secteurs_inclus": ["marketing", "conseil", "communication"],
+    "secteurs_exclus": ["hotellerie", "restauration"],
+    "taille_min": 5,
+    "taille_max": 30,
+    "roles_cibles": ["fondateur", "decideur"]
+  }
+}

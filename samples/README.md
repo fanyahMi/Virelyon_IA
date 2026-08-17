@@ -1,4 +1,4 @@
-# Données de test — ARES
+# Données de test — ARES &amp; Agent Builder
 
 Jeux de données prêts à l'emploi pour tester le service IA **avec ce qui est disponible aujourd'hui**.
 
@@ -17,6 +17,18 @@ Jeux de données prêts à l'emploi pour tester le service IA **avec ce qui est 
    > `AI_KEY` doit correspondre à `INTERNAL_API_KEY` de ton `.env`.
 
 ## Ce qui marche SANS clé Claude ✅ (logique pure / déterministe)
+
+### Agent Builder (paramétrage du client)
+
+| Fichier | Endpoint | Résultat attendu |
+|---|---|---|
+| — | `GET /api/v1/builder/referentiels` | vocabulaire des listes déroulantes (secteurs, rôles, tons, canaux) |
+| `icp_valider_ok.json` | `POST /api/v1/builder/icp/valider` | `valide: true`, **aucun diagnostic**, `criteres_actifs: 3` |
+| `icp_valider_contradiction.json` | `POST /api/v1/builder/icp/valider` | `valide: false` — 2 **erreurs** (min>max, secteur inclus ET exclu) |
+| `icp_valider_hors_referentiel.json` | `POST /api/v1/builder/icp/valider` | `valide: true` + 4 avertissements (« Marketing digital » → `marketing`, « CEO » → `fondateur`, « plomberie » inconnu, fourchette 10-12 trop étroite) |
+| `icp_valider_vide.json` | `POST /api/v1/builder/icp/valider` | `criteres_actifs: 0` — l'ICP ne filtre rien |
+
+### Scoring ARES
 
 | Fichier | Endpoint | Résultat attendu |
 |---|---|---|
@@ -37,6 +49,8 @@ Jeux de données prêts à l'emploi pour tester le service IA **avec ce qui est 
 
 | Fichier | Endpoint | Modèle | Résultat attendu |
 |---|---|---|---|
+| `icp_extraire.json` | `POST /api/v1/builder/icp/extraire` | Claude Sonnet 4.6 | ICP structuré : `["communication","marketing"]`, 5-30, `["fondateur"]`, exclut `hotellerie` |
+| `icp_extraire_vague.json` | `POST /api/v1/builder/icp/extraire` | Claude Sonnet 4.6 | **confiance basse**, ICP quasi vide — aucune fourchette inventée |
 | `qualify.json` | `POST /api/v1/ares/qualify` | Claude Sonnet 4.6 | `qualifie: true` |
 | `qualify_hors_icp.json` | `POST /api/v1/ares/qualify` | Claude Sonnet 4.6 | `qualifie: false` (secteur exclu, hors taille, stagiaire) |
 | `classify.json` | `POST /api/v1/ares/classify` | Claude Haiku 4.5 | `Intéressé` |

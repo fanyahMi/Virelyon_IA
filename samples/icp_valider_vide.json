@@ -1,0 +1,9 @@
+{
+  "icp": {
+    "secteurs_inclus": [],
+    "secteurs_exclus": [],
+    "taille_min": null,
+    "taille_max": null,
+    "roles_cibles": []
+  }
+}

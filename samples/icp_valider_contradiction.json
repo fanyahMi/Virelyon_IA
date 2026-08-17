@@ -1,0 +1,9 @@
+{
+  "icp": {
+    "secteurs_inclus": ["marketing", "conseil"],
+    "secteurs_exclus": ["marketing"],
+    "taille_min": 30,
+    "taille_max": 5,
+    "roles_cibles": ["fondateur"]
+  }
+}
