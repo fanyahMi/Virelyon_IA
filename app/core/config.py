@@ -16,6 +16,12 @@ class Settings(BaseSettings):
 
     ai_env: str = "development"
     default_max_tokens: int = 1024
+
+    # Clés des sources de prospection (server-side uniquement).
+    # Absentes = le sourcing reste utilisable en mode simulation (dry_run).
+    apollo_api_key: str = ""
+    google_places_api_key: str = ""
+    hunter_api_key: str = ""
     # Plafond de coût cumulé par workspace ($) avant blocage (0 = illimité)
     max_cost_per_workspace: float = 0.0
 
