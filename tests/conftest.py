@@ -46,6 +46,50 @@ def use_provider():
     app.dependency_overrides.pop(get_provider, None)
 
 
+class FauxClientHTTP:
+    """Client httpx factice : rend une charge JSON, ou lève l'exception fournie."""
+
+    def __init__(self, charge=None, exception=None) -> None:
+        self.charge = charge
+        self.exception = exception
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        return False
+
+    async def post(self, *_a, **_kw):
+        if self.exception is not None:
+            raise self.exception
+        import httpx
+
+        return httpx.Response(
+            200, json=self.charge, request=httpx.Request("POST", "http://test")
+        )
+
+
+@pytest.fixture
+def faux_http(monkeypatch):
+    """Remplace le client httpx d'un connecteur, et son registre côté exécuteur."""
+    def _set(module: str, charge=None, exception=None, cle="cle-de-test"):
+        monkeypatch.setattr(
+            f"app.sourcing.{module}.httpx.AsyncClient",
+            lambda *a, **k: FauxClientHTTP(charge, exception),
+        )
+        from app.sourcing.apollo import Apollo
+        from app.sourcing.hunter import Hunter
+        from app.sourcing.linkedin import LinkedIn
+        from app.sourcing.places import Places
+        from app.sourcing.site_web import SiteWeb
+
+        registre = {c.source: c for c in (Apollo(cle), Places(""), Hunter(""),
+                                         SiteWeb(), LinkedIn())}
+        monkeypatch.setattr("app.sourcing.executeur._connecteurs", lambda: registre)
+
+    return _set
+
+
 @pytest.fixture
 def score_payload():
     return {

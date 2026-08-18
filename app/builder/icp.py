@@ -7,8 +7,7 @@ Deux natures bien distinctes :
 """
 from __future__ import annotations
 
-import json
-
+from app.ares.agents import dump_json, meta_depuis
 from app.builder.referentiels import (
     CANAUX,
     ROLES,
@@ -18,8 +17,9 @@ from app.builder.referentiels import (
     TONS_DE_VOIX,
     aplatir,
     canoniser_secteur,
-    est_personnalise,
     normaliser_role,
+    normaliser_secteur,
+    stabiliser,
 )
 from app.gateway.router import Gateway
 from app.prompts.builder import ICP_EXTRACT_SYSTEM
@@ -31,8 +31,8 @@ from app.schemas.builder import (
     ICPValiderRequest,
     ICPValiderResponse,
     Referentiels,
+    diag,
 )
-from app.schemas.common import Meta, Usage
 
 # En dessous de cette amplitude, la fourchette d'effectif est jugée trop étroite
 # pour laisser passer un volume de leads exploitable.
@@ -51,8 +51,30 @@ def referentiels() -> Referentiels:
     )
 
 
-def _diagnostiquer(icp: ICP) -> tuple[list[Diagnostic], int]:
-    """Contrôles de cohérence. Retourne (diagnostics, nombre de critères actifs)."""
+def _diag_forme(champ: str, valeur: str, canon: str) -> Diagnostic:
+    """Le libellé saisi n'est pas la forme exacte que le filtrage comparera."""
+    return diag(
+        "avertissement",
+        champ,
+        f"« {valeur} » n'est pas la forme normalisée attendue. "
+        f"Le filtrage compare des valeurs exactes.",
+        f"Utiliser « {canon} ».",
+    )
+
+
+def _criteres_actifs(icp: ICP) -> int:
+    """Nombre de critères réellement discriminants : secteur, taille, rôle."""
+    return sum(
+        (
+            bool(icp.secteurs_inclus or icp.secteurs_exclus),
+            icp.taille_min is not None or icp.taille_max is not None,
+            bool(icp.roles_cibles),
+        )
+    )
+
+
+def _diagnostiquer(icp: ICP) -> list[Diagnostic]:
+    """Contrôles de cohérence sur un ICP."""
     diags: list[Diagnostic] = []
 
     # --- Erreurs bloquantes ---------------------------------------------------
@@ -62,29 +84,24 @@ def _diagnostiquer(icp: ICP) -> tuple[list[Diagnostic], int]:
         and icp.taille_min > icp.taille_max
     ):
         diags.append(
-            Diagnostic(
-                niveau="erreur",
-                champ="taille_effectif",
-                message=(
-                    f"La taille minimale ({icp.taille_min}) dépasse la taille maximale "
-                    f"({icp.taille_max}) : aucun lead ne peut correspondre."
-                ),
-                suggestion="Inverser les deux valeurs.",
+            diag(
+                "erreur",
+                "taille_effectif",
+                f"La taille minimale ({icp.taille_min}) dépasse la taille maximale "
+                f"({icp.taille_max}) : aucun lead ne peut correspondre.",
+                "Inverser les deux valeurs.",
             )
         )
 
     inclus_plats = {aplatir(s) for s in icp.secteurs_inclus}
-    contradictions = sorted(s for s in icp.secteurs_exclus if aplatir(s) in inclus_plats)
-    for secteur in contradictions:
+    for secteur in sorted(s for s in icp.secteurs_exclus if aplatir(s) in inclus_plats):
         diags.append(
-            Diagnostic(
-                niveau="erreur",
-                champ="secteurs",
-                message=(
-                    f"« {secteur} » est à la fois inclus et exclu. L'exclusion l'emporte : "
-                    f"tous les leads de ce secteur seront rejetés."
-                ),
-                suggestion=f"Retirer « {secteur} » d'une des deux listes.",
+            diag(
+                "erreur",
+                "secteurs",
+                f"« {secteur} » est à la fois inclus et exclu. L'exclusion l'emporte : "
+                f"tous les leads de ce secteur seront rejetés.",
+                f"Retirer « {secteur} » d'une des deux listes.",
             )
         )
 
@@ -96,127 +113,86 @@ def _diagnostiquer(icp: ICP) -> tuple[list[Diagnostic], int]:
         ("secteurs_exclus", icp.secteurs_exclus),
     ):
         for valeur in valeurs:
-            canon = canoniser_secteur(valeur)
-            if est_personnalise(valeur):
+            connu = normaliser_secteur(valeur)  # une seule normalisation par valeur
+            if connu is None:
                 diags.append(
-                    Diagnostic(
-                        niveau="info",
-                        champ=champ,
-                        message=(
-                            f"« {valeur} » est un secteur personnalisé (hors catalogue). "
-                            f"Il sera stocké sous la forme « {canon} »."
-                        ),
-                        suggestion=(
-                            "Vérifier que le sourcing enregistre bien les leads de ce "
-                            "secteur sous la même forme."
-                        ),
+                    diag(
+                        "info",
+                        champ,
+                        f"« {valeur} » est un secteur personnalisé (hors catalogue). "
+                        f"Il sera stocké sous la forme « {stabiliser(valeur)} ».",
+                        "Vérifier que le sourcing enregistre bien les leads de ce "
+                        "secteur sous la même forme.",
                     )
                 )
-            elif aplatir(canon) != aplatir(valeur):
-                diags.append(
-                    Diagnostic(
-                        niveau="avertissement",
-                        champ=champ,
-                        message=(
-                            f"« {valeur} » n'est pas la forme normalisée attendue. "
-                            f"Le filtrage compare des valeurs exactes."
-                        ),
-                        suggestion=f"Utiliser « {canon} ».",
-                    )
-                )
+            elif aplatir(connu) != aplatir(valeur):
+                diags.append(_diag_forme(champ, valeur, connu))
 
     # --- Rôles : le catalogue est fermé (il pilote les intitulés de poste) ----
     for valeur in icp.roles_cibles:
         canon = normaliser_role(valeur)
         if canon is None:
             diags.append(
-                Diagnostic(
-                    niveau="avertissement",
-                    champ="roles_cibles",
-                    message=(
-                        f"« {valeur} » ne fait pas partie des rôles reconnus : "
-                        f"la comparaison échouera sur tous les leads."
-                    ),
-                    suggestion="Choisir une valeur de la liste proposée.",
+                diag(
+                    "avertissement",
+                    "roles_cibles",
+                    f"« {valeur} » ne fait pas partie des rôles reconnus : "
+                    f"la comparaison échouera sur tous les leads.",
+                    "Choisir une valeur de la liste proposée.",
                 )
             )
         elif aplatir(canon) != aplatir(valeur):
-            diags.append(
-                Diagnostic(
-                    niveau="avertissement",
-                    champ="roles_cibles",
-                    message=(
-                        f"« {valeur} » n'est pas la forme normalisée attendue. "
-                        f"Le filtrage compare des valeurs exactes."
-                    ),
-                    suggestion=f"Utiliser « {canon} ».",
-                )
-            )
+            diags.append(_diag_forme("roles_cibles", valeur, canon))
 
-    # --- Critères réellement discriminants -----------------------------------
-    criteres = 0
-    if icp.secteurs_inclus or icp.secteurs_exclus:
-        criteres += 1
-    if icp.taille_min is not None or icp.taille_max is not None:
-        criteres += 1
-    if icp.roles_cibles:
-        criteres += 1
-
-    if criteres == 0:
+    # --- ICP inexploitable ou trop restrictif --------------------------------
+    if _criteres_actifs(icp) == 0:
         diags.append(
-            Diagnostic(
-                niveau="avertissement",
-                champ="icp",
-                message=(
-                    "Aucun critère renseigné : tous les leads obtiendront la même "
-                    "correspondance neutre et le score ne discriminera rien."
-                ),
-                suggestion="Renseigner au moins les secteurs visés.",
+            diag(
+                "avertissement",
+                "icp",
+                "Aucun critère renseigné : tous les leads obtiendront la même "
+                "correspondance neutre et le score ne discriminera rien.",
+                "Renseigner au moins les secteurs visés.",
             )
         )
 
-    # --- ICP trop restrictif --------------------------------------------------
+    taille_bornee = icp.taille_min is not None and icp.taille_max is not None
+    if taille_bornee and 0 <= icp.taille_max - icp.taille_min < _AMPLITUDE_MINIMALE:
+        diags.append(
+            diag(
+                "avertissement",
+                "taille_effectif",
+                f"La fourchette d'effectif est très étroite "
+                f"({icp.taille_min}-{icp.taille_max}) : peu de leads passeront le filtre.",
+                "Élargir la fourchette pour obtenir du volume.",
+            )
+        )
+
     if (
-        icp.taille_min is not None
-        and icp.taille_max is not None
-        and icp.taille_min <= icp.taille_max
-        and (icp.taille_max - icp.taille_min) < _AMPLITUDE_MINIMALE
+        len(icp.secteurs_inclus) == 1
+        and len(icp.roles_cibles) == 1
+        and (icp.taille_min is not None or icp.taille_max is not None)
     ):
         diags.append(
-            Diagnostic(
-                niveau="avertissement",
-                champ="taille_effectif",
-                message=(
-                    f"La fourchette d'effectif est très étroite "
-                    f"({icp.taille_min}-{icp.taille_max}) : peu de leads passeront le filtre."
-                ),
-                suggestion="Élargir la fourchette pour obtenir du volume.",
+            diag(
+                "avertissement",
+                "icp",
+                "Un seul secteur, un seul rôle et une fourchette de taille : "
+                "cet ICP est très sélectif et risque de produire peu de prospects.",
+                "Ajouter un secteur ou un rôle proche.",
             )
         )
 
-    if len(icp.secteurs_inclus) == 1 and len(icp.roles_cibles) == 1 and criteres == 3:
-        diags.append(
-            Diagnostic(
-                niveau="avertissement",
-                champ="icp",
-                message=(
-                    "Un seul secteur, un seul rôle et une fourchette de taille : "
-                    "cet ICP est très sélectif et risque de produire peu de prospects."
-                ),
-                suggestion="Ajouter un secteur ou un rôle proche.",
-            )
-        )
-
-    return diags, criteres
+    return diags
 
 
 def valider_icp(req: ICPValiderRequest) -> ICPValiderResponse:
     """Vérifie qu'un ICP peut réellement fonctionner. Aucun appel LLM."""
-    diags, criteres = _diagnostiquer(req.icp)
+    diags = _diagnostiquer(req.icp)
     return ICPValiderResponse(
         valide=not any(d.niveau == "erreur" for d in diags),
         diagnostics=diags,
-        criteres_actifs=criteres,
+        criteres_actifs=_criteres_actifs(req.icp),
     )
 
 
@@ -240,14 +216,13 @@ async def extraire_icp(gw: Gateway, req: ICPExtraireRequest) -> ICPExtraireRespo
     peut renvoyer une valeur hors référentiel malgré la consigne.
     """
     ref = referentiels()
-    user = json.dumps(
+    user = dump_json(
         {
             "texte": req.texte,
             "language": req.language,
             "referentiel_secteurs": ref.secteurs,
             "referentiel_roles": ref.roles,
-        },
-        ensure_ascii=False,
+        }
     )
     data, info = await gw.complete_json(
         "reasoning", ICP_EXTRACT_SYSTEM, user, req.workspace_id
@@ -279,17 +254,15 @@ async def extraire_icp(gw: Gateway, req: ICPExtraireRequest) -> ICPExtraireRespo
         if terme and terme not in non_reconnu:
             non_reconnu.append(terme)
 
-    diags, _ = _diagnostiquer(icp)
+    diags = _diagnostiquer(icp)
     if non_reconnu:
         diags.append(
-            Diagnostic(
-                niveau="avertissement",
-                champ="icp",
-                message=(
-                    "Certains éléments de la description n'ont pas pu être rattachés au "
-                    "référentiel : " + ", ".join(f"« {t} »" for t in non_reconnu)
-                ),
-                suggestion="Les compléter à la main dans les listes.",
+            diag(
+                "avertissement",
+                "icp",
+                "Certains éléments de la description n'ont pas pu être rattachés au "
+                "référentiel : " + ", ".join(f"« {t} »" for t in non_reconnu),
+                "Les compléter à la main dans les listes.",
             )
         )
 
@@ -303,12 +276,5 @@ async def extraire_icp(gw: Gateway, req: ICPExtraireRequest) -> ICPExtraireRespo
         confiance=confiance,
         non_reconnu=non_reconnu,
         diagnostics=diags,
-        meta=Meta(
-            model_used=info["model_used"],
-            usage=Usage(
-                input_tokens=info["input_tokens"], output_tokens=info["output_tokens"]
-            ),
-            cost_estimate=info["cost"],
-            cached=info.get("cached", False),
-        ),
+        meta=meta_depuis(info),
     )

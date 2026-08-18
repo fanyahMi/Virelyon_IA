@@ -8,9 +8,8 @@ from app.schemas.ares import ICP
 from app.schemas.builder import BlocRecherche
 from app.schemas.sourcing import ExecuterPlanRequest
 from app.sourcing.apollo import Apollo
-from app.sourcing.base import SourceNonConfiguree, construire_lead
+from app.sourcing.base import construire_lead
 from app.sourcing.executeur import executer_plan
-from app.sourcing.places import Places
 from tests.conftest import HEADERS
 
 WID = "11111111-1111-1111-1111-111111111111"
@@ -47,7 +46,7 @@ def test_dry_run_ne_divulgue_jamais_la_cle():
     params_auth = 0
     for source in res.par_source:
         for requete in source.requetes:
-            for nom, valeur in requete.params.items():
+            for nom, valeur in requete.entetes.items():
                 if "key" in nom.lower():
                     params_auth += 1
                     assert valeur == "***", f"{nom} n'est pas masqué"
@@ -86,12 +85,6 @@ def test_sans_cle_le_statut_est_explicite_pas_une_erreur():
     apollo = next(r for r in res.par_source if r.source == "apollo")
     assert apollo.statut == "non_configuree"
     assert "APOLLO_API_KEY" in apollo.erreur
-
-
-def test_connecteur_sans_cle_leve_une_erreur_typee():
-    with pytest.raises(SourceNonConfiguree) as exc:
-        Apollo("").exiger_cle()
-    assert "APOLLO_API_KEY" in str(exc.value)
 
 
 # ----- Plan invalide ---------------------------------------------------------
@@ -136,7 +129,7 @@ def test_construire_lead_trace_la_provenance():
 
 
 # ----- Exécution réelle (HTTP mocké) ----------------------------------------
-def test_apollo_mappe_les_resultats(monkeypatch):
+def test_apollo_mappe_les_resultats(faux_http):
     charge = {
         "people": [
             {
@@ -154,20 +147,7 @@ def test_apollo_mappe_les_resultats(monkeypatch):
         ]
     }
 
-    class FauxClient:
-        def __init__(self, *a, **k):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def post(self, *a, **k):
-            return httpx.Response(200, json=charge, request=httpx.Request("POST", "http://x"))
-
-    monkeypatch.setattr("app.sourcing.apollo.httpx.AsyncClient", FauxClient)
+    faux_http("apollo", charge=charge)
 
     leads = asyncio.run(
         Apollo("cle-de-test").executer(
@@ -183,25 +163,8 @@ def test_apollo_mappe_les_resultats(monkeypatch):
     assert lead.contact["email"] == "marie@studiocrea.co"
 
 
-def test_erreur_http_ne_fait_pas_tomber_l_execution(monkeypatch):
-    class FauxClient:
-        def __init__(self, *a, **k):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def post(self, *a, **k):
-            raise httpx.ConnectError("réseau injoignable")
-
-    monkeypatch.setattr("app.sourcing.apollo.httpx.AsyncClient", FauxClient)
-    monkeypatch.setattr(
-        "app.sourcing.executeur._connecteurs",
-        lambda: {"apollo": Apollo("cle-de-test"), "google_maps": Places("")},
-    )
+def test_erreur_http_ne_fait_pas_tomber_l_execution(faux_http):
+    faux_http("apollo", exception=httpx.ConnectError("réseau injoignable"))
 
     res = _executer(dry_run=False)
     apollo = next(r for r in res.par_source if r.source == "apollo")
@@ -210,7 +173,7 @@ def test_erreur_http_ne_fait_pas_tomber_l_execution(monkeypatch):
 
 
 # ----- Filtrage des secteurs exclus -----------------------------------------
-def test_les_leads_hors_icp_sont_ecartes(monkeypatch):
+def test_les_leads_hors_icp_sont_ecartes(faux_http):
     charge = {
         "people": [
             {
@@ -224,24 +187,7 @@ def test_les_leads_hors_icp_sont_ecartes(monkeypatch):
         ]
     }
 
-    class FauxClient:
-        def __init__(self, *a, **k):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def post(self, *a, **k):
-            return httpx.Response(200, json=charge, request=httpx.Request("POST", "http://x"))
-
-    monkeypatch.setattr("app.sourcing.apollo.httpx.AsyncClient", FauxClient)
-    monkeypatch.setattr(
-        "app.sourcing.executeur._connecteurs",
-        lambda: {"apollo": Apollo("cle-de-test"), "google_maps": Places("")},
-    )
+    faux_http("apollo", charge=charge)
 
     res = _executer(dry_run=False)
     assert [lead.nom for lead in res.leads] == ["Agence Nova"]

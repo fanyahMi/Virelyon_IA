@@ -41,6 +41,16 @@ class Diagnostic(BaseModel):
     suggestion: Optional[str] = None
 
 
+def diag(
+    niveau: Literal["erreur", "avertissement", "info"],
+    champ: str,
+    message: str,
+    suggestion: Optional[str] = None,
+) -> Diagnostic:
+    """Raccourci de construction — les diagnostics sont nombreux et verbeux inline."""
+    return Diagnostic(niveau=niveau, champ=champ, message=message, suggestion=suggestion)
+
+
 # ----- Extraction d'ICP depuis du texte libre -----
 class ICPExtraireRequest(BaseModel):
     """Le client décrit sa cible en langage normal ; on en tire un ICP structuré."""
@@ -78,6 +88,7 @@ class ICPValiderResponse(BaseModel):
 SOURCES_DECOUVERTE = ("google_maps", "apollo", "linkedin")
 # Sources d'ENRICHISSEMENT : complètent une entreprise DÉJÀ trouvée.
 SOURCES_ENRICHISSEMENT = ("site_web", "hunter")
+SOURCES_CONNUES = SOURCES_DECOUVERTE + SOURCES_ENRICHISSEMENT
 
 
 class BlocRecherche(BaseModel):
@@ -101,7 +112,6 @@ class PlanRechercheRequest(BaseModel):
     # Zone géographique — fournie EXPLICITEMENT par le client, jamais déduite
     # (contrainte CDCF §8 : aucun ciblage géographique en dur).
     zone: Optional[str] = None
-    langue: str = "fr"
 
 
 class PlanRechercheResponse(BaseModel):

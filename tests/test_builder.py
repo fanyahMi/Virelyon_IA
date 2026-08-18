@@ -112,14 +112,14 @@ def test_secteur_du_catalogue_large_ne_declenche_rien():
 
 
 def test_canonisation_des_secteurs_personnalises():
-    from app.builder.referentiels import canoniser_secteur, est_personnalise
+    from app.builder.referentiels import canoniser_secteur
 
     # Hors catalogue : stabilisé en slug, jamais rejeté.
     assert canoniser_secteur("Plomberie industrielle") == "plomberie_industrielle"
-    assert est_personnalise("Plomberie industrielle") is True
+    assert normaliser_secteur("Plomberie industrielle") is None
     # Au catalogue : ramené à sa forme canonique.
     assert canoniser_secteur("Marketing digital") == "marketing"
-    assert est_personnalise("Marketing digital") is False
+    assert normaliser_secteur("Marketing digital") == "marketing"
 
 
 def test_sous_specialite_est_absorbee_par_son_secteur_parent():

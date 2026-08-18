@@ -14,7 +14,7 @@ from fastapi import Depends
 from app.core.config import TIER_TO_MODEL, get_settings
 from app.gateway.cache import response_cache
 from app.gateway.cost_tracker import cost_tracker
-from app.gateway.provider import LLMProvider, get_provider
+from app.gateway.provider import LLMProvider, ReponseLLMInvalide, get_provider
 
 
 def _extract_json(text: str) -> dict:
@@ -25,7 +25,10 @@ def _extract_json(text: str) -> dict:
         text = re.sub(r"```$", "", text).strip()
     match = re.search(r"\{.*\}", text, re.DOTALL)
     raw = match.group(0) if match else text
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ReponseLLMInvalide(f"JSON illisible dans la réponse du modèle : {exc}") from exc
 
 
 class Gateway:

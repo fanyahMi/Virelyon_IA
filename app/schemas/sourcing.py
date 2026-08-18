@@ -15,7 +15,7 @@ class RequeteHTTP(BaseModel):
     """
     methode: str
     url: str
-    params: dict = Field(default_factory=dict)
+    entetes: dict = Field(default_factory=dict)
     corps: dict = Field(default_factory=dict)
 
 

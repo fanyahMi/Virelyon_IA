@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from functools import lru_cache
 
 # --- Secteurs -----------------------------------------------------------------
 # Catalogue de SUGGESTIONS proposé par défaut dans l'Agent Builder. Un client peut
@@ -157,7 +158,6 @@ _SYNONYMES: dict[str, str] = {
     "medical": "sante",
     "clinique": "sante",
     "pharmacie": "sante",
-    "librairie": "librairie",
     # rôles
     "ceo": "fondateur",
     "founder": "fondateur",
@@ -254,29 +254,39 @@ def aplatir(valeur: str) -> str:
     return re.sub(r"[\s_-]+", " ", texte)
 
 
+# Tables dérivées, calculées une fois au chargement plutôt qu'à chaque appel.
+_PAR_FORME_PLATE = {aplatir(c): c for c in SECTEURS + ROLES}
+_MOTIF_SYNONYME = {s: re.compile(rf"\b{re.escape(s)}\b") for s in _SYNONYMES}
+_MOTIF_CANON = {c: re.compile(rf"\b{re.escape(aplatir(c))}\b") for c in SECTEURS + ROLES}
+
+
+@lru_cache(maxsize=4096)
 def _normaliser(valeur: str, referentiel: tuple[str, ...]) -> str | None:
-    """Rattache une valeur libre au référentiel, ou None si aucune correspondance."""
+    """Rattache une valeur libre au référentiel, ou None si aucune correspondance.
+
+    Mémorisée : la même valeur est normalisée plusieurs fois par requête (validation
+    d'ICP, plan de recherche, filtrage des leads), toujours avec le même résultat.
+    """
     plat = aplatir(valeur)
     if not plat:
         return None
 
     # 1. correspondance directe avec le référentiel
-    for canon in referentiel:
-        if plat == aplatir(canon):
-            return canon
+    canon = _PAR_FORME_PLATE.get(plat)
+    if canon in referentiel:
+        return canon
 
-    # 2. synonyme connu
-    cible = _SYNONYMES.get(plat)
-    if cible in referentiel:
-        return cible
-
-    # 3. le libellé contient un terme du référentiel ou un synonyme
+    # 2. le libellé est un synonyme, ou en contient un
     #    ("agence de marketing digital B2B" → marketing)
-    for source, canon in _SYNONYMES.items():
-        if canon in referentiel and re.search(rf"\b{re.escape(source)}\b", plat):
-            return canon
+    #    Une égalité exacte satisfait toujours les frontières de mot, donc ce seul
+    #    passage couvre aussi le cas « la valeur EST un synonyme ».
+    for source, cible in _SYNONYMES.items():
+        if cible in referentiel and _MOTIF_SYNONYME[source].search(plat):
+            return cible
+
+    # 3. le libellé contient un terme du référentiel
     for canon in referentiel:
-        if re.search(rf"\b{re.escape(aplatir(canon))}\b", plat):
+        if _MOTIF_CANON[canon].search(plat):
             return canon
 
     return None
@@ -305,15 +315,12 @@ def canoniser_secteur(valeur: str) -> str:
     Builder sur l'ICP : la comparaison ne tient que si les deux côtés canonisent
     de la même façon.
     """
-    connu = _normaliser(valeur, SECTEURS)
-    if connu is not None:
-        return connu
+    return normaliser_secteur(valeur) or stabiliser(valeur)
+
+
+def stabiliser(valeur: str) -> str:
+    """Forme slug d'un libellé hors catalogue : `"Cabinet vétérinaire"` → `cabinet_veterinaire`."""
     return re.sub(r"[^a-z0-9]+", "_", aplatir(valeur)).strip("_")
-
-
-def est_personnalise(valeur: str) -> bool:
-    """True si le secteur ne figure pas au catalogue par défaut."""
-    return _normaliser(valeur, SECTEURS) is None
 
 
 def normaliser_role(valeur: str) -> str | None:

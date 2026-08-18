@@ -12,6 +12,11 @@ from anthropic import AsyncAnthropic
 from app.core.config import get_settings
 
 
+class ReponseLLMInvalide(RuntimeError):
+    """Le modèle a répondu, mais sa sortie n'est pas exploitable (JSON cassé,
+    champ attendu absent). Distinct d'une indisponibilité : réessayer peut marcher."""
+
+
 class LLMNotConfiguredError(RuntimeError):
     """Levée quand aucune clé LLM n'est configurée (→ 503 côté endpoint)."""
 

@@ -22,6 +22,11 @@ class Apollo(Connecteur):
     source = "apollo"
     variable_cle = "APOLLO_API_KEY"
 
+    def _entetes(self, cle: str) -> dict:
+        """Une seule définition : l'aperçu et l'appel réel ne peuvent pas diverger."""
+        return {"Content-Type": "application/json", "Cache-Control": "no-cache",
+                "x-api-key": cle}
+
     def _corps(self, bloc: BlocRecherche, limite: int) -> dict:
         corps: dict = {"page": 1, "per_page": min(limite, 100)}
         filtres = bloc.filtres or {}
@@ -39,20 +44,16 @@ class Apollo(Connecteur):
             RequeteHTTP(
                 methode="POST",
                 url=URL,
-                params={"x-api-key": CLE_MASQUEE},
+                entetes=self._entetes(CLE_MASQUEE),
                 corps=self._corps(bloc, limite),
             )
         ]
 
     async def executer(self, bloc: BlocRecherche, limite: int) -> list[Lead]:
-        self.exiger_cle()
-        entetes = {
-            "Content-Type": "application/json",
-            "Cache-Control": "no-cache",
-            "x-api-key": self.cle,
-        }
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            reponse = await client.post(URL, headers=entetes, json=self._corps(bloc, limite))
+            reponse = await client.post(
+                URL, headers=self._entetes(self.cle), json=self._corps(bloc, limite)
+            )
             reponse.raise_for_status()
             data = reponse.json()
 

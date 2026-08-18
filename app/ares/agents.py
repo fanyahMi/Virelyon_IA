@@ -5,6 +5,7 @@ structurée, et joint les métadonnées (modèle, tokens, coût).
 """
 import json
 
+from app.gateway.provider import ReponseLLMInvalide
 from app.gateway.router import Gateway
 from app.prompts.ares import (
     CLASSIFY_SYSTEM,
@@ -34,7 +35,15 @@ _ACTION_ALIASES = {
 }
 
 
-def _meta(info: dict) -> Meta:
+def requis(data: dict, cle: str):
+    """Champ que le modèle DOIT avoir renvoyé — message explicite s'il manque."""
+    if cle not in data:
+        raise ReponseLLMInvalide(f"champ « {cle} » absent de la réponse du modèle.")
+    return data[cle]
+
+
+def meta_depuis(info: dict) -> Meta:
+    """Métadonnées de réponse à partir du dict rendu par `Gateway.complete_json`."""
     return Meta(
         model_used=info["model_used"],
         usage=Usage(input_tokens=info["input_tokens"], output_tokens=info["output_tokens"]),
@@ -43,23 +52,24 @@ def _meta(info: dict) -> Meta:
     )
 
 
-def _dump(payload: dict) -> str:
+def dump_json(payload: dict) -> str:
+    """Sérialisation unique des messages envoyés au LLM (accents conservés)."""
     return json.dumps(payload, ensure_ascii=False, default=str)
 
 
 async def qualify(gw: Gateway, req: QualifyRequest) -> QualifyResponse:
-    user = _dump({"lead": req.lead.model_dump(mode="json"), "icp": req.icp.model_dump()})
+    user = dump_json({"lead": req.lead.model_dump(mode="json"), "icp": req.icp.model_dump()})
     data, info = await gw.complete_json("reasoning", QUALIFY_SYSTEM, user, req.workspace_id)
     return QualifyResponse(
-        qualifie=bool(data["qualifie"]),
-        confiance=float(data["confiance"]),
+        qualifie=bool(requis(data, "qualifie")),
+        confiance=float(requis(data, "confiance")),
         motif=str(data.get("motif", "")),
-        meta=_meta(info),
+        meta=meta_depuis(info),
     )
 
 
 async def generate(gw: Gateway, req: GenerateRequest) -> GenerateResponse:
-    user = _dump(
+    user = dump_json(
         {
             "lead": req.lead.model_dump(mode="json"),
             "etape": req.etape,
@@ -72,20 +82,20 @@ async def generate(gw: Gateway, req: GenerateRequest) -> GenerateResponse:
         "reasoning", GENERATE_SYSTEM, user, req.workspace_id, max_tokens=1500
     )
     return GenerateResponse(
-        texte=str(data["texte"]),
+        texte=str(requis(data, "texte")),
         canal=str(data.get("canal", "email")),
-        meta=_meta(info),
+        meta=meta_depuis(info),
     )
 
 
 async def classify(gw: Gateway, req: ClassifyRequest) -> ClassifyResponse:
-    user = _dump({"message": req.message_entrant, "langue": req.language})
+    user = dump_json({"message": req.message_entrant, "langue": req.language})
     data, info = await gw.complete_json("fast", CLASSIFY_SYSTEM, user, req.workspace_id)
     return ClassifyResponse(
-        categorie=str(data["categorie"]),
-        confiance=float(data["confiance"]),
+        categorie=str(requis(data, "categorie")),
+        confiance=float(requis(data, "confiance")),
         date_relance=data.get("date_relance"),
-        meta=_meta(info),
+        meta=meta_depuis(info),
     )
 
 
@@ -102,7 +112,7 @@ async def decide(gw: Gateway, req: DecideRequest) -> DecideResponse:
             meta=None,
         )
 
-    user = _dump(
+    user = dump_json(
         {
             "lead": req.lead.model_dump(mode="json"),
             "palier": req.palier.model_dump(),
@@ -111,7 +121,7 @@ async def decide(gw: Gateway, req: DecideRequest) -> DecideResponse:
         }
     )
     data, info = await gw.complete_json("reasoning", DECIDE_SYSTEM, user, req.workspace_id)
-    action = _ACTION_ALIASES.get(str(data["action"]).strip().lower())
+    action = _ACTION_ALIASES.get(str(requis(data, "action")).strip().lower())
     if action is None:
         raise ValueError(f"action inconnue: {data.get('action')!r}")
-    return DecideResponse(action=action, justification=str(data.get("justification", "")), meta=_meta(info))
+    return DecideResponse(action=action, justification=str(data.get("justification", "")), meta=meta_depuis(info))

@@ -10,94 +10,88 @@ matière ; le jugement reste aux endpoints ARES.
 """
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 
 from app.builder.plan_recherche import construire_plan
-from app.builder.referentiels import canoniser_secteur
 from app.core.config import get_settings
 from app.schemas.ares import Lead
-from app.schemas.builder import BlocRecherche, Diagnostic, PlanRechercheRequest
+from app.schemas.builder import BlocRecherche, Diagnostic, PlanRechercheRequest, diag
 from app.schemas.sourcing import (
     ExecuterPlanRequest,
     ExecuterPlanResponse,
     ResultatSource,
 )
 from app.sourcing.apollo import Apollo
-from app.sourcing.base import Connecteur, SourceNonConfiguree
+from app.sourcing.base import Connecteur
+from app.sourcing.hunter import Hunter
+from app.sourcing.linkedin import LinkedIn
 from app.sourcing.places import Places
+from app.sourcing.site_web import SiteWeb
 
-# Sources non encore branchées — déclarées explicitement plutôt que silencieuses.
-NON_IMPLEMENTES = {
-    "hunter": "Enrichissement d'email : à brancher après la découverte.",
-    "site_web": "Extraction de page : nécessite l'appel LLM d'extraction.",
-    "linkedin": "Aucune API de recherche — utiliser Apollo pour les décideurs.",
-}
+_DIAG_SIMULATION = diag(
+    "info",
+    "dry_run",
+    "Mode simulation : aucune requête n'a été envoyée. Les appels qui seraient "
+    "effectués figurent dans `par_source[].requetes`.",
+    "Passer dry_run à false une fois les clés d'API configurées.",
+)
 
 
 def _connecteurs() -> dict[str, Connecteur]:
+    """Registre UNIQUE des sources. Une source non branchée y figure aussi, avec
+    son motif — c'est ce qui évite qu'elle disparaisse silencieusement."""
     s = get_settings()
-    return {
-        "apollo": Apollo(s.apollo_api_key),
-        "google_maps": Places(s.google_places_api_key),
-    }
+    tous = (Apollo(s.apollo_api_key), Places(s.google_places_api_key),
+            Hunter(s.hunter_api_key), SiteWeb(), LinkedIn())
+    return {c.source: c for c in tous}
 
 
 async def _executer_bloc(
     connecteur: Connecteur, bloc: BlocRecherche, limite: int, dry_run: bool
 ) -> tuple[ResultatSource, list[Lead]]:
-    requetes = connecteur.apercu(bloc, limite)
-
-    if dry_run:
-        return (
-            ResultatSource(source=bloc.source, statut="simule", requetes=requetes),
-            [],
-        )
-
-    if not connecteur.configure():
+    """Un connecteur, un bloc. N'échoue jamais : rend toujours un `ResultatSource`."""
+    if connecteur.motif_non_implemente and not dry_run:
         return (
             ResultatSource(
                 source=bloc.source,
-                statut="non_configuree",
-                requetes=requetes,
-                erreur=f"{connecteur.variable_cle} non renseignée.",
+                statut="non_implemente",
+                erreur=connecteur.motif_non_implemente,
             ),
             [],
         )
+
+    requetes = connecteur.apercu(bloc, limite)
+
+    def resultat(statut: str, **extra) -> ResultatSource:
+        return ResultatSource(
+            source=bloc.source, statut=statut, requetes=requetes, **extra
+        )
+
+    if dry_run:
+        # La simulation couvre AUSSI les sources non branchées : leur plan est
+        # déjà construit, autant le montrer — c'est tout l'intérêt du mode.
+        if connecteur.motif_non_implemente:
+            return resultat("non_implemente", erreur=connecteur.motif_non_implemente), []
+        return resultat("simule"), []
+
+    if not connecteur.configure():
+        return resultat(
+            "non_configuree", erreur=f"{connecteur.variable_cle} non renseignée."
+        ), []
 
     try:
         leads = await connecteur.executer(bloc, limite)
-    except SourceNonConfiguree as exc:
-        return (
-            ResultatSource(source=bloc.source, statut="non_configuree", erreur=str(exc)),
-            [],
-        )
     except httpx.HTTPStatusError as exc:
-        return (
-            ResultatSource(
-                source=bloc.source,
-                statut="erreur",
-                requetes=requetes,
-                erreur=f"HTTP {exc.response.status_code} — {exc.response.reason_phrase}",
-            ),
-            [],
-        )
+        return resultat(
+            "erreur",
+            erreur=f"HTTP {exc.response.status_code} — {exc.response.reason_phrase}",
+        ), []
     except httpx.HTTPError as exc:
-        return (
-            ResultatSource(
-                source=bloc.source,
-                statut="erreur",
-                requetes=requetes,
-                erreur=f"{exc.__class__.__name__} : {exc}",
-            ),
-            [],
-        )
+        return resultat("erreur", erreur=f"{exc.__class__.__name__} : {exc}"), []
 
-    return (
-        ResultatSource(
-            source=bloc.source, statut="ok", nb_leads=len(leads), requetes=requetes
-        ),
-        leads,
-    )
+    return resultat("ok", nb_leads=len(leads)), leads
 
 
 async def executer_plan(req: ExecuterPlanRequest) -> ExecuterPlanResponse:
@@ -114,52 +108,34 @@ async def executer_plan(req: ExecuterPlanRequest) -> ExecuterPlanResponse:
     # Une erreur bloquante du plan (ex. aucun secteur ciblé) arrête tout :
     # exécuter des requêtes vides coûterait de l'argent pour rien.
     if any(d.niveau == "erreur" for d in diagnostics):
-        return ExecuterPlanResponse(par_source=[], diagnostics=diagnostics)
+        return ExecuterPlanResponse(diagnostics=diagnostics)
 
     connecteurs = _connecteurs()
-    par_source: list[ResultatSource] = []
-    leads: list[Lead] = []
+    couples = [
+        (connecteurs[bloc.source], bloc)
+        for bloc in plan.decouverte + plan.enrichissement
+        if bloc.source in connecteurs
+    ]
 
-    for bloc in plan.decouverte + plan.enrichissement:
-        if bloc.source in NON_IMPLEMENTES:
-            par_source.append(
-                ResultatSource(
-                    source=bloc.source,
-                    statut="non_implemente",
-                    erreur=NON_IMPLEMENTES[bloc.source],
-                )
-            )
-            continue
+    # Les sources sont indépendantes : les enchaîner en séquence ferait payer la
+    # somme des latences réseau au lieu de la plus longue.
+    resultats = await asyncio.gather(
+        *(_executer_bloc(c, b, req.limite, req.dry_run) for c, b in couples)
+    )
+    par_source = [r for r, _ in resultats]
+    leads = [lead for _, trouves in resultats for lead in trouves]
 
-        connecteur = connecteurs.get(bloc.source)
-        if connecteur is None:
-            continue
-
-        resultat, trouves = await _executer_bloc(connecteur, bloc, req.limite, req.dry_run)
-        par_source.append(resultat)
-        leads.extend(trouves)
-
-    # Aucune source externe ne sait exclure un secteur : on filtre ici.
-    exclus = {canoniser_secteur(s) for s in req.icp.secteurs_exclus}
-    retenus = [lead for lead in leads if canoniser_secteur(lead.secteur or "") not in exclus]
-    rejetes = len(leads) - len(retenus)
+    # Aucune source externe ne sait exclure un secteur : on filtre ici, en
+    # consommant la liste déjà canonisée par le plan.
+    exclus = set(plan.secteurs_exclus)
+    retenus = [lead for lead in leads if lead.secteur not in exclus]
 
     if req.dry_run:
-        diagnostics.append(
-            Diagnostic(
-                niveau="info",
-                champ="dry_run",
-                message=(
-                    "Mode simulation : aucune requête n'a été envoyée. Les appels qui "
-                    "seraient effectués figurent dans `par_source[].requetes`."
-                ),
-                suggestion="Passer dry_run à false une fois les clés d'API configurées.",
-            )
-        )
+        diagnostics.append(_DIAG_SIMULATION)
 
     return ExecuterPlanResponse(
         leads=retenus,
         par_source=par_source,
-        rejetes_hors_icp=rejetes,
+        rejetes_hors_icp=len(leads) - len(retenus),
         diagnostics=diagnostics,
     )

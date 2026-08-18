@@ -24,12 +24,14 @@ from app.builder.referentiels import (
 )
 from app.schemas.ares import ICP
 from app.schemas.builder import (
+    SOURCES_CONNUES,
     SOURCES_DECOUVERTE,
     SOURCES_ENRICHISSEMENT,
     BlocRecherche,
     Diagnostic,
     PlanRechercheRequest,
     PlanRechercheResponse,
+    diag,
 )
 
 # LinkedIn n'expose aucune API de recherche : toute collecte y passe par de
@@ -40,23 +42,58 @@ _AVERTISSEMENT_LINKEDIN = (
     "Les mêmes décideurs sont accessibles légalement via Apollo."
 )
 
+# Diagnostics au texte fixe — sortis du flux de contrôle pour que la logique par
+# source tienne en quelques lignes lisibles.
+_DIAG_SANS_SECTEUR = diag(
+    "erreur",
+    "icp.secteurs_inclus",
+    "Aucun secteur ciblé : impossible de construire une requête de recherche. "
+    "Le sourcing ne peut pas démarrer.",
+    "Renseigner au moins un secteur dans l'ICP.",
+)
+_DIAG_SANS_ZONE = diag(
+    "avertissement",
+    "zone",
+    "Aucune zone fournie : Google Places renverra des résultats dispersés et peu "
+    "exploitables.",
+    "Demander au client la zone à prospecter.",
+)
+_DIAG_LINKEDIN = diag(
+    "avertissement", "sources", _AVERTISSEMENT_LINKEDIN,
+    "Utiliser Apollo pour identifier les décideurs.",
+)
+_DIAG_EXCLUSIONS = diag(
+    "avertissement",
+    "icp.secteurs_exclus",
+    "Les secteurs exclus ne peuvent pas être filtrés à la source : ils seront "
+    "écartés après collecte, par la qualification.",
+)
 
-def _libelles(icp: ICP, cle: str) -> list[str]:
-    """Termes de recherche pour une source donnée, dans l'ordre de l'ICP.
 
-    Un secteur personnalisé n'a pas de libellés prédéfinis : on retombe sur le
-    libellé saisi par le client, qui reste une requête de recherche valable.
+def _filtres(**paires) -> dict:
+    """Ne retient que les critères réellement renseignés."""
+    return {cle: valeur for cle, valeur in paires.items() if valeur}
+
+
+def _libelles(icp: ICP, cle: str) -> tuple[list[str], list[str]]:
+    """(termes de recherche, secteurs sans libellé prédéfini).
+
+    Un secteur personnalisé n'a pas de libellés : on retombe sur le libellé saisi
+    par le client, qui reste une requête de recherche valable. Le second élément
+    permet à l'appelant de le signaler sans refaire le test.
     """
     sortie: list[str] = []
+    sans_libelle: list[str] = []
     for secteur in icp.secteurs_inclus:
         canon = normaliser_secteur(secteur)
         termes = LIBELLES_RECHERCHE.get(canon, {}).get(cle, ()) if canon else ()
         if not termes:
             termes = (secteur.strip(),)  # repli : la saisie du client
+            sans_libelle.append(secteur)
         for terme in termes:
             if terme and terme not in sortie:
                 sortie.append(terme)
-    return sortie
+    return sortie, sans_libelle
 
 
 def _titres(icp: ICP) -> list[str]:
@@ -83,115 +120,82 @@ def _tranche_effectif(icp: ICP) -> str | None:
 
 def construire_plan(req: PlanRechercheRequest) -> PlanRechercheResponse:
     icp = req.icp
-    demandees = [s for s in req.sources] or list(SOURCES_DECOUVERTE + SOURCES_ENRICHISSEMENT)
+    demandees = req.sources or list(SOURCES_CONNUES)
     diags: list[Diagnostic] = []
 
-    inconnues = [s for s in demandees if s not in SOURCES_DECOUVERTE + SOURCES_ENRICHISSEMENT]
-    for source in inconnues:
+    for source in (s for s in demandees if s not in SOURCES_CONNUES):
         diags.append(
-            Diagnostic(
-                niveau="avertissement",
-                champ="sources",
-                message=f"Source « {source} » inconnue : ignorée.",
-                suggestion="Sources reconnues : "
-                + ", ".join(SOURCES_DECOUVERTE + SOURCES_ENRICHISSEMENT),
+            diag(
+                "avertissement",
+                "sources",
+                f"Source « {source} » inconnue : ignorée.",
+                "Sources reconnues : " + ", ".join(SOURCES_CONNUES),
             )
         )
 
     if not icp.secteurs_inclus:
-        diags.append(
-            Diagnostic(
-                niveau="erreur",
-                champ="icp.secteurs_inclus",
-                message=(
-                    "Aucun secteur ciblé : impossible de construire une requête de "
-                    "recherche. Le sourcing ne peut pas démarrer."
-                ),
-                suggestion="Renseigner au moins un secteur dans l'ICP.",
-            )
-        )
+        diags.append(_DIAG_SANS_SECTEUR)
 
     titres = _titres(icp)
     tranche = _tranche_effectif(icp)
     decouverte: list[BlocRecherche] = []
     enrichissement: list[BlocRecherche] = []
 
+    # Le repli « pas de libellé prédéfini » vaut pour toutes les sources de
+    # découverte, pas seulement Maps : on le signale une fois, hors des blocs.
+    _, sans_libelle = _libelles(icp, "maps")
+    for secteur in sans_libelle:
+        diags.append(
+            diag(
+                "info",
+                "icp.secteurs_inclus",
+                f"Aucun libellé de recherche prédéfini pour « {secteur} » : la saisie "
+                f"du client est utilisée telle quelle comme requête.",
+                "Ajouter des libellés dans LIBELLES_RECHERCHE si ce secteur revient souvent.",
+            )
+        )
+
     # --- Google Maps (Places) : requêtes texte ------------------------------
     if "google_maps" in demandees:
-        libelles = _libelles(icp, "maps")
-        # La zone n'est JAMAIS déduite (CDCF §8) — on la concatène si le client l'a fournie.
+        libelles, _ = _libelles(icp, "maps")
+        # La zone n'est JAMAIS déduite (CDCF §8) — concaténée si le client l'a fournie.
         requetes = [f"{lib} {req.zone}".strip() if req.zone else lib for lib in libelles]
         if libelles and not req.zone:
-            diags.append(
-                Diagnostic(
-                    niveau="avertissement",
-                    champ="zone",
-                    message=(
-                        "Aucune zone fournie : Google Places renverra des résultats "
-                        "dispersés et peu exploitables."
-                    ),
-                    suggestion="Demander au client la zone à prospecter.",
-                )
-            )
-        for secteur in icp.secteurs_inclus:
-            canon = normaliser_secteur(secteur)
-            if canon is None or canon not in LIBELLES_RECHERCHE:
-                diags.append(
-                    Diagnostic(
-                        niveau="info",
-                        champ="icp.secteurs_inclus",
-                        message=(
-                            f"Aucun libellé de recherche prédéfini pour « {secteur} » : "
-                            f"la saisie du client est utilisée telle quelle comme requête."
-                        ),
-                        suggestion=(
-                            "Ajouter des libellés dans LIBELLES_RECHERCHE si ce secteur "
-                            "revient souvent."
-                        ),
-                    )
-                )
+            diags.append(_DIAG_SANS_ZONE)
         decouverte.append(
             BlocRecherche(source="google_maps", type="requetes_texte", requetes=requetes)
         )
 
     # --- Apollo : filtres structurés ----------------------------------------
     if "apollo" in demandees:
-        filtres: dict = {}
-        industries = _libelles(icp, "apollo")
-        if industries:
-            filtres["organization_industries"] = industries
-        if tranche:
-            filtres["organization_num_employees_ranges"] = [tranche]
-        if titres:
-            filtres["person_titles"] = titres
-        decouverte.append(BlocRecherche(source="apollo", type="filtres", filtres=filtres))
+        industries, _ = _libelles(icp, "apollo")
+        decouverte.append(
+            BlocRecherche(
+                source="apollo",
+                type="filtres",
+                filtres=_filtres(
+                    organization_industries=industries,
+                    organization_num_employees_ranges=[tranche] if tranche else None,
+                    person_titles=titres,
+                ),
+            )
+        )
 
     # --- LinkedIn : filtres, mais réserve juridique -------------------------
     if "linkedin" in demandees:
-        filtres = {}
-        if titres:
-            filtres["titres"] = titres
-        if tranche:
-            filtres["taille_entreprise"] = tranche
-        secteurs_lus = [canoniser_secteur(x) for x in icp.secteurs_inclus]
-        if secteurs_lus:
-            filtres["secteurs"] = secteurs_lus
         decouverte.append(
             BlocRecherche(
                 source="linkedin",
                 type="filtres",
-                filtres=filtres,
+                filtres=_filtres(
+                    titres=titres,
+                    taille_entreprise=tranche,
+                    secteurs=[canoniser_secteur(x) for x in icp.secteurs_inclus],
+                ),
                 avertissement=_AVERTISSEMENT_LINKEDIN,
             )
         )
-        diags.append(
-            Diagnostic(
-                niveau="avertissement",
-                champ="sources",
-                message=_AVERTISSEMENT_LINKEDIN,
-                suggestion="Utiliser Apollo pour identifier les décideurs.",
-            )
-        )
+        diags.append(_DIAG_LINKEDIN)
 
     # --- Site web : extraction (enrichissement) -----------------------------
     if "site_web" in demandees:
@@ -205,27 +209,19 @@ def construire_plan(req: PlanRechercheRequest) -> PlanRechercheResponse:
 
     # --- Hunter : recherche d'email sur un domaine connu --------------------
     if "hunter" in demandees:
-        filtres = {}
-        if titres:
-            filtres["titres_recherches"] = titres
         enrichissement.append(
-            BlocRecherche(source="hunter", type="domain_search", filtres=filtres)
+            BlocRecherche(
+                source="hunter",
+                type="domain_search",
+                filtres=_filtres(titres_recherches=titres),
+            )
         )
 
     # Aucune source externe ne sait exclure un secteur : le filtre est appliqué
     # après collecte, par la qualification.
     exclus = [canoniser_secteur(x) for x in icp.secteurs_exclus]
     if exclus:
-        diags.append(
-            Diagnostic(
-                niveau="avertissement",
-                champ="icp.secteurs_exclus",
-                message=(
-                    "Les secteurs exclus ne peuvent pas être filtrés à la source : "
-                    "ils seront écartés après collecte, par la qualification."
-                ),
-            )
-        )
+        diags.append(_DIAG_EXCLUSIONS)
 
     return PlanRechercheResponse(
         decouverte=decouverte,

@@ -8,6 +8,5 @@
     "roles_cibles": ["fondateur", "decideur"]
   },
   "sources": ["google_maps", "apollo", "site_web", "hunter"],
-  "zone": "Genève",
-  "langue": "fr"
+  "zone": "Genève"
 }

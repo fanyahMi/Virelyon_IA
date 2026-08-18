@@ -24,24 +24,27 @@ class Places(Connecteur):
     source = "google_maps"
     variable_cle = "GOOGLE_PLACES_API_KEY"
 
+    def _entetes(self, cle: str) -> dict:
+        """Une seule définition : l'aperçu et l'appel réel ne peuvent pas diverger."""
+        return {"Content-Type": "application/json", "X-Goog-Api-Key": cle,
+                "X-Goog-FieldMask": CHAMPS}
+
+    def _corps(self, requete: str, limite: int) -> dict:
+        return {"textQuery": requete, "pageSize": min(limite, 20)}
+
     def apercu(self, bloc: BlocRecherche, limite: int) -> list[RequeteHTTP]:
         return [
             RequeteHTTP(
                 methode="POST",
                 url=URL,
-                params={"X-Goog-Api-Key": CLE_MASQUEE, "X-Goog-FieldMask": CHAMPS},
-                corps={"textQuery": requete, "pageSize": min(limite, 20)},
+                entetes=self._entetes(CLE_MASQUEE),
+                corps=self._corps(requete, limite),
             )
             for requete in bloc.requetes
         ]
 
     async def executer(self, bloc: BlocRecherche, limite: int) -> list[Lead]:
-        self.exiger_cle()
-        entetes = {
-            "Content-Type": "application/json",
-            "X-Goog-Api-Key": self.cle,
-            "X-Goog-FieldMask": CHAMPS,
-        }
+        entetes = self._entetes(self.cle)
         leads: list[Lead] = []
         vus: set[str] = set()
 
@@ -50,9 +53,7 @@ class Places(Connecteur):
                 if len(leads) >= limite:
                     break
                 reponse = await client.post(
-                    URL,
-                    headers=entetes,
-                    json={"textQuery": requete, "pageSize": min(limite, 20)},
+                    URL, headers=entetes, json=self._corps(requete, limite)
                 )
                 reponse.raise_for_status()
                 for lieu in reponse.json().get("places") or []:

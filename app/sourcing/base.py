@@ -22,16 +22,18 @@ CLE_MASQUEE = "***"
 TIMEOUT = httpx.Timeout(20.0)
 
 
-class SourceNonConfiguree(RuntimeError):
-    """Clé d'API absente — l'appelant doit répondre 503, pas 500."""
-
-
 class Connecteur:
     """Classe de base. Un connecteur = une source externe."""
 
     source: str = ""
     # Nom de la variable d'environnement portant la clé (pour les messages d'erreur).
     variable_cle: str = ""
+    # "decouverte" (trouve des entreprises inconnues) ou "enrichissement"
+    # (complète une entreprise déjà trouvée).
+    nature: str = "decouverte"
+    # Renseigné quand le connecteur n'est pas encore écrit : l'exécuteur s'en sert
+    # pour déclarer la source plutôt que de l'ignorer silencieusement.
+    motif_non_implemente: str | None = None
 
     def __init__(self, cle: str = "") -> None:
         self.cle = cle
@@ -39,21 +41,11 @@ class Connecteur:
     def configure(self) -> bool:
         return bool(self.cle)
 
-    def exiger_cle(self) -> None:
-        if not self.configure():
-            raise SourceNonConfiguree(
-                f"{self.source} : clé absente ({self.variable_cle} non renseignée)."
-            )
-
     def apercu(self, bloc: BlocRecherche, limite: int) -> list[RequeteHTTP]:
         raise NotImplementedError
 
     async def executer(self, bloc: BlocRecherche, limite: int) -> list[Lead]:
         raise NotImplementedError
-
-
-def maintenant() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def construire_lead(
@@ -74,6 +66,7 @@ def construire_lead(
       échouerait sur des leads parfaitement valides ;
     - la provenance est tracée dans `donnees_brutes` (exigence de traçabilité).
     """
+    horodatage = datetime.now(timezone.utc)
     contact: dict = {}
     if email:
         contact["email"] = email
@@ -93,11 +86,11 @@ def construire_lead(
         role_contact=role or (titre_contact or None),
         contact=contact,
         donnees_brutes={
-            "collecte_le": maintenant().isoformat(),
+            "collecte_le": horodatage.isoformat(),
             "sources": [source] if source else [],
             "titre_brut": titre_contact,
             "secteur_brut": secteur,
             "signaux_bruts": [],
         },
-        ingested_at=maintenant(),
+        ingested_at=horodatage,
     )

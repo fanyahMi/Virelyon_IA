@@ -7,7 +7,7 @@
     "taille_max": 30,
     "roles_cibles": ["fondateur", "decideur"]
   },
-  "sources": ["apollo", "google_maps", "hunter"],
+  "sources": ["apollo", "google_maps", "hunter", "site_web", "linkedin"],
   "zone": "Genève",
   "limite": 25,
   "dry_run": true
